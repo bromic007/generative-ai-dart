@@ -14,6 +14,7 @@
 
 import 'content.dart';
 import 'error.dart';
+import 'function_calling.dart' show Schema;
 import 'model.dart';
 
 final class CountTokensResponse {
@@ -22,8 +23,23 @@ final class CountTokensResponse {
   /// Always non-negative.
   final int totalTokens;
 
-  CountTokensResponse(this.totalTokens);
+  /// Optional extra fields in the Vertex AI data model.
+  final Map<String, Object?>? _extraFields;
+
+  CountTokensResponse(this.totalTokens) : _extraFields = null;
+  CountTokensResponse._(this.totalTokens, this._extraFields);
 }
+
+/// Returns the fields other than `totalTokens` that were parsed from JSON for
+/// [response].
+Map<String, Object?>? countTokensResponseFields(CountTokensResponse response) =>
+    response._extraFields;
+
+/// Returns a [CountTokensResponse] as if it was parsed from a JSON map with
+/// [extraFields] alongside the total tokends field.
+CountTokensResponse createCountTokensResponse(
+        int totalTokens, Map<String, Object>? extraFields) =>
+    CountTokensResponse._(totalTokens, extraFields);
 
 /// Response from the model; supports multiple candidates.
 final class GenerateContentResponse {
@@ -33,52 +49,53 @@ final class GenerateContentResponse {
   /// Returns the prompt's feedback related to the content filters.
   final PromptFeedback? promptFeedback;
 
-  GenerateContentResponse(this.candidates, this.promptFeedback);
+  final UsageMetadata? usageMetadata;
 
-  /// The text content of the first part of the first of [candidates], if any.
+  // TODO(natebosch): Change `promptFeedback` to a named argument.
+  GenerateContentResponse(
+    this.candidates,
+    this.promptFeedback, {
+    this.usageMetadata,
+  });
+
+  /// The text content of the text parts of the first of [candidates], if any.
   ///
   /// If the prompt was blocked, or the first candidate was finished for a reason
   /// of [FinishReason.recitation] or [FinishReason.safety], accessing this text
   /// will throw a [GenerativeAIException].
   ///
-  /// If the first candidate's content starts with a text part, this value is
-  /// that text.
+  /// If the first candidate's content contains any text parts, this value is
+  /// the concatenation of the text.
   ///
-  /// If there are no candidates, or if the first candidate does not start with
-  /// a text part, this value is `null`.
-  String? get text {
-    return switch (candidates) {
-      [] => switch (promptFeedback) {
-          PromptFeedback(
-            :final blockReason,
-            :final blockReasonMessage,
-          ) =>
-            // TODO: Add a specific subtype for this exception?
-            throw GenerativeAIException('Response was blocked'
-                '${blockReason != null ? ' due to $blockReason' : ''}'
-                '${blockReasonMessage != null ? ': $blockReasonMessage' : ''}'),
-          _ => null,
-        },
-      [
-        Candidate(
-          finishReason: (FinishReason.recitation || FinishReason.safety) &&
-              final finishReason,
-          :final finishMessage,
-        ),
-        ...
-      ] =>
-        throw GenerativeAIException(
-          // ignore: prefer_interpolation_to_compose_strings
-          'Candidate was blocked due to $finishReason' +
-              (finishMessage != null && finishMessage.isNotEmpty
-                  ? ': $finishMessage'
-                  : ''),
-        ),
-      [Candidate(content: Content(parts: [TextPart(:final text)])), ...] =>
-        text,
-      [Candidate(), ...] => null,
-    };
-  }
+  /// If there are no candidates, or if the first candidate does not contain any
+  /// text parts, this value is `null`.
+  ///
+  /// If there is more than one candidate, all but the first are ignored. See
+  /// [Candidate.text] to get the text content of candidates other than the
+  /// first.
+  String? get text => switch (candidates) {
+        [] => switch (promptFeedback) {
+            PromptFeedback(
+              :final blockReason,
+              :final blockReasonMessage,
+            ) =>
+              // TODO: Add a specific subtype for this exception?
+              throw GenerativeAIException('Response was blocked'
+                  '${blockReason != null ? ' due to $blockReason' : ''}'
+                  '${blockReasonMessage != null ? ': $blockReasonMessage' : ''}'),
+            _ => null,
+          },
+        [final candidate, ...] => candidate.text,
+      };
+
+  /// The function call parts of the first candidate in [candidates], if any.
+  ///
+  /// Returns an empty list if there are no candidates, or if the first
+  /// candidate has no [FunctionCall] parts. There is no error thrown if the
+  /// prompt or response were blocked.
+  Iterable<FunctionCall> get functionCalls =>
+      candidates.firstOrNull?.content.parts.whereType<FunctionCall>() ??
+      const [];
 }
 
 final class EmbedContentResponse {
@@ -86,6 +103,34 @@ final class EmbedContentResponse {
   final ContentEmbedding embedding;
 
   EmbedContentResponse(this.embedding);
+}
+
+final class BatchEmbedContentsResponse {
+  /// The embeddings generated from the input content for each request, in the
+  /// same order as provided in the batch request.
+  final List<ContentEmbedding> embeddings;
+
+  BatchEmbedContentsResponse(this.embeddings);
+}
+
+final class EmbedContentRequest {
+  final Content content;
+  final TaskType? taskType;
+  final String? title;
+  final String? model;
+  final int? outputDimensionality;
+
+  EmbedContentRequest(this.content,
+      {this.taskType, this.title, this.model, this.outputDimensionality});
+
+  Object toJson({String? defaultModel}) => {
+        'content': content.toJson(),
+        if (taskType case final taskType?) 'taskType': taskType.toJson(),
+        if (title != null) 'title': title,
+        if (model ?? defaultModel case final model?) 'model': model,
+        if (outputDimensionality != null)
+          'outputDimensionality': outputDimensionality,
+      };
 }
 
 /// An embedding, as defined by a list of values.
@@ -111,6 +156,24 @@ final class PromptFeedback {
   final List<SafetyRating> safetyRatings;
 
   PromptFeedback(this.blockReason, this.blockReasonMessage, this.safetyRatings);
+}
+
+/// Metadata on the generation request's token usage.
+final class UsageMetadata {
+  /// Number of tokens in the prompt.
+  final int? promptTokenCount;
+
+  /// Total number of tokens across the generated candidates.
+  final int? candidatesTokenCount;
+
+  /// Total token count for the generation request (prompt + candidates).
+  final int? totalTokenCount;
+
+  UsageMetadata({
+    this.promptTokenCount,
+    this.candidatesTokenCount,
+    this.totalTokenCount,
+  });
 }
 
 /// Response candidate generated from a [GenerativeModel].
@@ -140,6 +203,36 @@ final class Candidate {
   // TODO: token count?
   Candidate(this.content, this.safetyRatings, this.citationMetadata,
       this.finishReason, this.finishMessage);
+
+  /// The concatenation of the text parts of [content], if any.
+  ///
+  /// If this candidate was finished for a reason of [FinishReason.recitation]
+  /// or [FinishReason.safety], accessing this text will throw a
+  /// [GenerativeAIException].
+  ///
+  /// If [content] contains any text parts, this value is the concatenation of
+  /// the text.
+  ///
+  /// If [content] does not contain any text parts, this value is `null`.
+  String? get text {
+    if (finishReason case FinishReason.recitation || FinishReason.safety) {
+      final String suffix;
+      if (finishMessage case final message? when message.isNotEmpty) {
+        suffix = ': $message';
+      } else {
+        suffix = '';
+      }
+      throw GenerativeAIException(
+          'Candidate was blocked due to $finishReason$suffix');
+    }
+    return switch (content.parts) {
+      // Special case for a single TextPart to avoid iterable chain.
+      [TextPart(:final text)] => text,
+      final parts when parts.any((p) => p is TextPart) =>
+        parts.whereType<TextPart>().map((p) => p.text).join(''),
+      _ => null,
+    };
+  }
 }
 
 /// Safety rating for a piece of content.
@@ -174,14 +267,12 @@ enum BlockReason {
   /// Prompt was blocked due to other unspecified reasons.
   other;
 
-  static BlockReason _parseValue(String jsonObject) {
-    return switch (jsonObject) {
-      'BLOCK_REASON_UNSPECIFIED' => BlockReason.unspecified,
-      'SAFETY' => BlockReason.safety,
-      'OTHER' => BlockReason.other,
-      _ => throw FormatException('Unhandled BlockReason format', jsonObject),
-    };
-  }
+  static BlockReason _parseValue(String jsonObject) => switch (jsonObject) {
+        'BLOCK_REASON_UNSPECIFIED' => BlockReason.unspecified,
+        'SAFETY' => BlockReason.safety,
+        'OTHER' => BlockReason.other,
+        _ => throw unhandledFormat('BlockReason', jsonObject),
+      };
 
   @override
   String toString() => name;
@@ -191,39 +282,42 @@ enum BlockReason {
 ///
 /// These categories cover various kinds of harms that developers may wish to
 /// adjust.
+///
+/// Some categories from the rest API are excluded because they are not used by
+/// the Gemini generative models.
 enum HarmCategory {
-  unspecified('HARM_CATEGORY_UNSPECIFIED'),
+  unspecified,
 
   /// Malicious, intimidating, bullying, or abusive comments targeting another
   /// individual.
-  harassment('HARM_CATEGORY_HARASSMENT'),
+  harassment,
 
   /// Negative or harmful comments targeting identity and/or protected
   /// attributes.
-  hateSpeech('HARM_CATEGORY_HATE_SPEECH'),
+  hateSpeech,
 
   /// Contains references to sexual acts or other lewd content.
-  sexuallyExplicit('HARM_CATEGORY_SEXUALLY_EXPLICIT'),
+  sexuallyExplicit,
 
   /// Promotes or enables access to harmful goods, services, and activities.
-  dangerousContent('HARM_CATEGORY_DANGEROUS_CONTENT');
+  dangerousContent;
 
-  static HarmCategory _parseValue(Object jsonObject) {
-    return switch (jsonObject) {
-      'HARM_CATEGORY_UNSPECIFIED' => HarmCategory.unspecified,
-      'HARM_CATEGORY_HARASSMENT' => HarmCategory.harassment,
-      'HARM_CATEGORY_HATE_SPEECH' => HarmCategory.hateSpeech,
-      'HARM_CATEGORY_SEXUALLY_EXPLICIT' => HarmCategory.sexuallyExplicit,
-      'HARM_CATEGORY_DANGEROUS_CONTENT' => HarmCategory.dangerousContent,
-      _ => throw FormatException('Unhandled HarmCategory format', jsonObject),
-    };
-  }
+  static HarmCategory _parseValue(Object jsonObject) => switch (jsonObject) {
+        'HARM_CATEGORY_UNSPECIFIED' => unspecified,
+        'HARM_CATEGORY_HARASSMENT' => harassment,
+        'HARM_CATEGORY_HATE_SPEECH' => hateSpeech,
+        'HARM_CATEGORY_SEXUALLY_EXPLICIT' => sexuallyExplicit,
+        'HARM_CATEGORY_DANGEROUS_CONTENT' => dangerousContent,
+        _ => throw unhandledFormat('HarmCategory', jsonObject),
+      };
 
-  const HarmCategory(this._jsonString);
-
-  final String _jsonString;
-
-  String toJson() => _jsonString;
+  String toJson() => switch (this) {
+        unspecified => 'HARM_CATEGORY_UNSPECIFIED',
+        harassment => 'HARM_CATEGORY_HARASSMENT',
+        hateSpeech => 'HARM_CATEGORY_HATE_SPEECH',
+        sexuallyExplicit => 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+        dangerousContent => 'HARM_CATEGORY_DANGEROUS_CONTENT'
+      };
 }
 
 /// The probability that a piece of content is harmful.
@@ -246,17 +340,14 @@ enum HarmProbability {
   /// Content has a high probability of being unsafe.
   high;
 
-  static HarmProbability _parseValue(Object jsonObject) {
-    return switch (jsonObject) {
-      'UNSPECIFIED' => HarmProbability.unspecified,
-      'NEGLIGIBLE' => HarmProbability.negligible,
-      'LOW' => HarmProbability.low,
-      'MEDIUM' => HarmProbability.medium,
-      'HIGH' => HarmProbability.high,
-      _ =>
-        throw FormatException('Unhandled HarmProbability format', jsonObject),
-    };
-  }
+  static HarmProbability _parseValue(Object jsonObject) => switch (jsonObject) {
+        'UNSPECIFIED' => HarmProbability.unspecified,
+        'NEGLIGIBLE' => HarmProbability.negligible,
+        'LOW' => HarmProbability.low,
+        'MEDIUM' => HarmProbability.medium,
+        'HIGH' => HarmProbability.high,
+        _ => throw unhandledFormat('HarmProbability', jsonObject),
+      };
 }
 
 /// Source attributions for a piece of content.
@@ -310,17 +401,15 @@ enum FinishReason {
   /// Unknown reason.
   other;
 
-  static FinishReason _parseValue(Object jsonObject) {
-    return switch (jsonObject) {
-      'UNSPECIFIED' => FinishReason.unspecified,
-      'STOP' => FinishReason.stop,
-      'MAX_TOKENS' => FinishReason.maxTokens,
-      'SAFETY' => FinishReason.safety,
-      'RECITATION' => FinishReason.recitation,
-      'OTHER' => FinishReason.other,
-      _ => throw FormatException('Unhandled FinishReason format', jsonObject),
-    };
-  }
+  static FinishReason _parseValue(Object jsonObject) => switch (jsonObject) {
+        'UNSPECIFIED' => FinishReason.unspecified,
+        'STOP' => FinishReason.stop,
+        'MAX_TOKENS' => FinishReason.maxTokens,
+        'SAFETY' => FinishReason.safety,
+        'RECITATION' => FinishReason.recitation,
+        'OTHER' => FinishReason.other,
+        _ => throw unhandledFormat('FinishReason', jsonObject),
+      };
 
   @override
   String toString() => name;
@@ -349,25 +438,27 @@ final class SafetySetting {
 /// or above this level will block content from being returned.
 enum HarmBlockThreshold {
   /// Threshold is unspecified, block using default threshold.
-  unspecified('HARM_BLOCK_THRESHOLD_UNSPECIFIED'),
+  unspecified,
 
   /// Block when medium or high probability of unsafe content.
-  low('BLOCK_LOW_AND_ABOVE'),
+  low,
 
   /// Block when medium or high probability of unsafe content.
-  medium('BLOCK_MEDIUM_AND_ABOVE'),
+  medium,
 
   /// Block when high probability of unsafe content.
-  high('BLOCK_ONLY_HIGH'),
+  high,
 
   /// Always show regardless of probability of unsafe content.
-  none('BLOCK_NONE');
+  none;
 
-  final String _jsonString;
-
-  const HarmBlockThreshold(this._jsonString);
-
-  Object toJson() => _jsonString;
+  String toJson() => switch (this) {
+        unspecified => 'HARM_BLOCK_THRESHOLD_UNSPECIFIED',
+        low => 'BLOCK_LOW_AND_ABOVE',
+        medium => 'BLOCK_MEDIUM_AND_ABOVE',
+        high => 'BLOCK_ONLY_HIGH',
+        none => 'BLOCK_NONE'
+      };
 }
 
 /// Configuration options for model generation and outputs.
@@ -417,13 +508,29 @@ final class GenerationConfig {
   /// Note: The default value varies by model.
   final int? topK;
 
-  GenerationConfig(
-      {this.candidateCount,
-      this.stopSequences = const [],
-      this.maxOutputTokens,
-      this.temperature,
-      this.topP,
-      this.topK});
+  /// Output response mimetype of the generated candidate text.
+  ///
+  /// Supported mimetype:
+  /// - `text/plain`: (default) Text output.
+  /// - `application/json`: JSON response in the candidates.
+  final String? responseMimeType;
+
+  /// Output response schema of the generated candidate text.
+  ///
+  /// - Note: This only applies when the specified ``responseMIMEType`` supports
+  ///   a schema; currently this is limited to `application/json`.
+  final Schema? responseSchema;
+
+  GenerationConfig({
+    this.candidateCount,
+    this.stopSequences = const [],
+    this.maxOutputTokens,
+    this.temperature,
+    this.topP,
+    this.topK,
+    this.responseMimeType,
+    this.responseSchema,
+  });
 
   Map<String, Object?> toJson() => {
         if (candidateCount case final candidateCount?)
@@ -434,97 +541,127 @@ final class GenerationConfig {
         if (temperature case final temperature?) 'temperature': temperature,
         if (topP case final topP?) 'topP': topP,
         if (topK case final topK?) 'topK': topK,
+        if (responseMimeType case final responseMimeType?)
+          'responseMimeType': responseMimeType,
+        if (responseSchema case final responseSchema?)
+          'responseSchema': responseSchema,
       };
 }
 
 /// Type of task for which the embedding will be used.
 enum TaskType {
   /// Unset value, which will default to one of the other enum values.
-  unspecified('TASK_TYPE_UNSPECIFIED'),
+  unspecified,
 
   /// Specifies the given text is a query in a search/retrieval setting.
-  retrievalQuery('RETRIEVAL_QUERY'),
+  retrievalQuery,
 
   /// Specifies the given text is a document from the corpus being searched.
-  retrievalDocument('RETRIEVAL_DOCUMENT'),
+  retrievalDocument,
 
   /// Specifies the given text will be used for STS.
-  semanticSimilarity('SEMANTIC_SIMILARITY'),
+  semanticSimilarity,
 
   /// Specifies that the given text will be classified.
-  classification('CLASSIFICATION'),
+  classification,
 
   /// Specifies that the embeddings will be used for clustering.
-  clustering('CLUSTERING');
+  clustering;
 
-  final String _jsonString;
-
-  const TaskType(this._jsonString);
-
-  Object toJson() => _jsonString;
+  String toJson() => switch (this) {
+        unspecified => 'TASK_TYPE_UNSPECIFIED',
+        retrievalQuery => 'RETRIEVAL_QUERY',
+        retrievalDocument => 'RETRIEVAL_DOCUMENT',
+        semanticSimilarity => 'SEMANTIC_SIMILARITY',
+        classification => 'CLASSIFICATION',
+        clustering => 'CLUSTERING'
+      };
 }
 
 GenerateContentResponse parseGenerateContentResponse(Object jsonObject) {
-  return switch (jsonObject) {
-    {'candidates': final List<Object?> candidates} => GenerateContentResponse(
-        candidates.map(_parseCandidate).toList(),
-        switch (jsonObject) {
-          {'promptFeedback': final promptFeedback?} =>
-            _parsePromptFeedback(promptFeedback),
-          _ => null
-        }),
-    {'promptFeedback': final promptFeedback?} =>
-      GenerateContentResponse([], _parsePromptFeedback(promptFeedback)),
-    _ => throw FormatException(
-        'Unhandled GenerateContentResponse format', jsonObject)
+  if (jsonObject case {'error': final Object error}) throw parseError(error);
+  final candidates = switch (jsonObject) {
+    {'candidates': final List<Object?> candidates} =>
+      candidates.map(_parseCandidate).toList(),
+    _ => <Candidate>[]
   };
+  final promptFeedback = switch (jsonObject) {
+    {'promptFeedback': final promptFeedback?} =>
+      _parsePromptFeedback(promptFeedback),
+    _ => null,
+  };
+  final usageMedata = switch (jsonObject) {
+    {'usageMetadata': final usageMetadata?} =>
+      _parseUsageMetadata(usageMetadata),
+    _ => null,
+  };
+  return GenerateContentResponse(candidates, promptFeedback,
+      usageMetadata: usageMedata);
 }
 
 CountTokensResponse parseCountTokensResponse(Object jsonObject) {
-  return switch (jsonObject) {
-    {'totalTokens': final int totalTokens} => CountTokensResponse(totalTokens),
-    _ =>
-      throw FormatException('Unhandled CountTokensResponse format', jsonObject)
-  };
+  if (jsonObject case {'error': final Object error}) throw parseError(error);
+  if (jsonObject case {'totalTokens': final int totalTokens}) {
+    final extraFields = {
+      for (final entry in jsonObject.entries)
+        if (entry.key case final String fieldName
+            when fieldName != 'totalTokens')
+          fieldName: entry.value
+    };
+    return CountTokensResponse._(totalTokens,
+        extraFields.isEmpty ? null : Map.unmodifiable(extraFields));
+  }
+  throw unhandledFormat('CountTokensResponse', jsonObject);
 }
 
 EmbedContentResponse parseEmbedContentResponse(Object jsonObject) {
   return switch (jsonObject) {
     {'embedding': final Object embedding} =>
       EmbedContentResponse(_parseContentEmbedding(embedding)),
-    _ =>
-      throw FormatException('Unhandled EmbedContentResponse format', jsonObject)
+    {'error': final Object error} => throw parseError(error),
+    _ => throw unhandledFormat('EmbedContentResponse', jsonObject)
+  };
+}
+
+BatchEmbedContentsResponse parseBatchEmbedContentsResponse(Object jsonObject) {
+  return switch (jsonObject) {
+    {'embeddings': final List<Object?> embeddings} =>
+      BatchEmbedContentsResponse(
+          embeddings.map(_parseContentEmbedding).toList()),
+    {'error': final Object error} => throw parseError(error),
+    _ => throw unhandledFormat('EmbedContentResponse', jsonObject)
   };
 }
 
 Candidate _parseCandidate(Object? jsonObject) {
-  return switch (jsonObject) {
-    {
-      'content': final Object content,
-    } =>
-      Candidate(
-          parseContent(content),
-          switch (jsonObject) {
-            {'safetyRatings': final List<Object?> safetyRatings} =>
-              safetyRatings.map(_parseSafetyRating).toList(),
-            _ => null
-          },
-          switch (jsonObject) {
-            {'citationMetadata': final Object citationMetadata} =>
-              _parseCitationMetadata(citationMetadata),
-            _ => null
-          },
-          switch (jsonObject) {
-            {'finishReason': final Object finishReason} =>
-              FinishReason._parseValue(finishReason),
-            _ => null
-          },
-          switch (jsonObject) {
-            {'finishMessage': final String finishMessage} => finishMessage,
-            _ => null
-          }),
-    _ => throw FormatException('Unhandled Candidate format', jsonObject),
-  };
+  if (jsonObject is! Map) {
+    throw unhandledFormat('Candidate', jsonObject);
+  }
+
+  return Candidate(
+    jsonObject.containsKey('content')
+        ? parseContent(jsonObject['content'] as Object)
+        : Content(null, []),
+    switch (jsonObject) {
+      {'safetyRatings': final List<Object?> safetyRatings} =>
+        safetyRatings.map(_parseSafetyRating).toList(),
+      _ => null
+    },
+    switch (jsonObject) {
+      {'citationMetadata': final Object citationMetadata} =>
+        _parseCitationMetadata(citationMetadata),
+      _ => null
+    },
+    switch (jsonObject) {
+      {'finishReason': final Object finishReason} =>
+        FinishReason._parseValue(finishReason),
+      _ => null
+    },
+    switch (jsonObject) {
+      {'finishMessage': final String finishMessage} => finishMessage,
+      _ => null
+    },
+  );
 }
 
 PromptFeedback _parsePromptFeedback(Object jsonObject) {
@@ -544,8 +681,31 @@ PromptFeedback _parsePromptFeedback(Object jsonObject) {
             _ => null,
           },
           safetyRatings.map(_parseSafetyRating).toList()),
-    _ => throw FormatException('Unhandled PromptFeedback format', jsonObject),
+    _ => throw unhandledFormat('PromptFeedback', jsonObject),
   };
+}
+
+UsageMetadata _parseUsageMetadata(Object jsonObject) {
+  if (jsonObject is! Map<String, Object?>) {
+    throw unhandledFormat('UsageMetadata', jsonObject);
+  }
+  final promptTokenCount = switch (jsonObject) {
+    {'promptTokenCount': final int promptTokenCount} => promptTokenCount,
+    _ => null,
+  };
+  final candidatesTokenCount = switch (jsonObject) {
+    {'candidatesTokenCount': final int candidatesTokenCount} =>
+      candidatesTokenCount,
+    _ => null,
+  };
+  final totalTokenCount = switch (jsonObject) {
+    {'totalTokenCount': final int totalTokenCount} => totalTokenCount,
+    _ => null,
+  };
+  return UsageMetadata(
+      promptTokenCount: promptTokenCount,
+      candidatesTokenCount: candidatesTokenCount,
+      totalTokenCount: totalTokenCount);
 }
 
 SafetyRating _parseSafetyRating(Object? jsonObject) {
@@ -556,7 +716,7 @@ SafetyRating _parseSafetyRating(Object? jsonObject) {
     } =>
       SafetyRating(HarmCategory._parseValue(category),
           HarmProbability._parseValue(probability)),
-    _ => throw FormatException('Unhandled SafetyRating format', jsonObject),
+    _ => throw unhandledFormat('SafetyRating', jsonObject),
   };
 }
 
@@ -565,7 +725,7 @@ ContentEmbedding _parseContentEmbedding(Object? jsonObject) {
     {'values': final List<Object?> values} => ContentEmbedding(<double>[
         ...values.cast<double>(),
       ]),
-    _ => throw FormatException('Unhandled ContentEmbedding format', jsonObject),
+    _ => throw unhandledFormat('ContentEmbedding', jsonObject),
   };
 }
 
@@ -573,19 +733,24 @@ CitationMetadata _parseCitationMetadata(Object? jsonObject) {
   return switch (jsonObject) {
     {'citationSources': final List<Object?> citationSources} =>
       CitationMetadata(citationSources.map(_parseCitationSource).toList()),
-    _ => throw FormatException('Unhandled CitationMetadata format', jsonObject),
+    // Vertex SDK format uses `citations`
+    {'citations': final List<Object?> citationSources} =>
+      CitationMetadata(citationSources.map(_parseCitationSource).toList()),
+    _ => throw unhandledFormat('CitationMetadata', jsonObject),
   };
 }
 
 CitationSource _parseCitationSource(Object? jsonObject) {
-  return switch (jsonObject) {
-    {
-      'startIndex': final int startIndex,
-      'endIndex': final int endIndex,
-      'uri': final String uri,
-      'license': final String license,
-    } =>
-      CitationSource(startIndex, endIndex, Uri.parse(uri), license),
-    _ => throw FormatException('Unhandled CitationSource format', jsonObject),
-  };
+  if (jsonObject is! Map) {
+    throw unhandledFormat('CitationSource', jsonObject);
+  }
+
+  final uriString = jsonObject['uri'] as String?;
+
+  return CitationSource(
+    jsonObject['startIndex'] as int?,
+    jsonObject['endIndex'] as int?,
+    uriString != null ? Uri.parse(uriString) : null,
+    jsonObject['license'] as String?,
+  );
 }

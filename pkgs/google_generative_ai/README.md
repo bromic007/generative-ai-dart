@@ -11,6 +11,14 @@ applications. This SDK supports use cases like:
 -   Build multi-turn conversations (chat)
 -   Embedding
 
+> [!CAUTION]
+> **Using the Google AI SDK for Dart (Flutter) to call the Google AI Gemini API
+> directly from your app is recommended for prototyping only.** If you plan to
+> enable billing, we strongly recommend that you use the SDK to call the Google
+> AI Gemini API only server-side to keep your API key safe. You risk potentially
+> exposing your API key to malicious actors if you embed your API key directly
+> in your mobile or web app or fetch it remotely at runtime.
+
 ## Getting started
 
 ### Get an API key
@@ -46,7 +54,10 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 const apiKey = ...;
 
 void main() async {
-  final model = GenerativeModel(model: 'gemini-pro', apiKey: apiKey);
+  final model = GenerativeModel(
+      model: 'gemini-1.5-flash-latest',
+      apiKey: apiKey,
+  );
 
   final prompt = 'Write a story about a magic backpack.';
   final content = [Content.text(prompt)];

@@ -17,12 +17,18 @@ import 'dart:io';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 void main() async {
-  final apiKey = Platform.environment['GOOGLE_API_KEY'];
+  final apiKey = Platform.environment['GEMINI_API_KEY'];
   if (apiKey == null) {
-    stderr.writeln(r'No $GOOGLE_API_KEY environment variable');
+    stderr.writeln(r'No $GEMINI_API_KEY environment variable');
     exit(1);
   }
-  final model = GenerativeModel(model: 'gemini-pro', apiKey: apiKey);
+  final model = GenerativeModel(
+      model: 'gemini-1.5-flash-latest',
+      apiKey: apiKey,
+      safetySettings: [
+        SafetySetting(HarmCategory.dangerousContent, HarmBlockThreshold.high)
+      ],
+      generationConfig: GenerationConfig(maxOutputTokens: 200));
   final prompt = 'Write a story about a magic backpack.';
   print('Prompt: $prompt');
   final content = [Content.text(prompt)];

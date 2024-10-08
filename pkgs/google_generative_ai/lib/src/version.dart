@@ -12,22 +12,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import 'dart:io';
-
-import 'package:google_generative_ai/google_generative_ai.dart';
-
-void main() async {
-  final apiKey = Platform.environment['GEMINI_API_KEY'];
-  if (apiKey == null) {
-    stderr.writeln(r'No $GEMINI_API_KEY environment variable');
-    exit(1);
-  }
-  final model = GenerativeModel(model: 'embedding-001', apiKey: apiKey);
-  final prompt = 'The quick brown fox jumps over the lazy dog.';
-  print('Content: $prompt');
-  final content = Content.text(prompt);
-
-  final result = await model.embedContent(content);
-  print('Embedding:');
-  print(result.embedding.values);
-}
+const packageVersion = '0.4.6';

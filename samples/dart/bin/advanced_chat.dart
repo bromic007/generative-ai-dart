@@ -17,15 +17,16 @@ import 'dart:io';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 Future<void> main() async {
-  final apiKey = Platform.environment['GOOGLE_API_KEY'];
+  final apiKey = Platform.environment['GEMINI_API_KEY'];
   if (apiKey == null) {
-    stderr.writeln(r'No $GOOGLE_API_KEY environment variable');
+    stderr.writeln(r'No $GEMINI_API_KEY environment variable');
     exit(1);
   }
   final model = GenerativeModel(
-      model: 'gemini-pro',
-      apiKey: apiKey,
-      generationConfig: GenerationConfig(maxOutputTokens: 100));
+    model: 'gemini-1.5-flash-latest',
+    apiKey: apiKey,
+    generationConfig: GenerationConfig(maxOutputTokens: 100),
+  );
   final chat = model.startChat(history: [
     Content.text('Hello, I have 2 dogs in my house.'),
     Content.model([TextPart('Great to meet you. What would you like to know?')])

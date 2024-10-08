@@ -17,13 +17,13 @@ import 'dart:io';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 void main() async {
-  final apiKey = Platform.environment['GOOGLE_API_KEY'];
+  final apiKey = Platform.environment['GEMINI_API_KEY'];
   if (apiKey == null) {
-    stderr.writeln(r'No $GOOGLE_API_KEY environment variable');
+    stderr.writeln(r'No $GEMINI_API_KEY environment variable');
     exit(1);
   }
   final model = GenerativeModel(
-      model: 'gemini-pro',
+      model: 'gemini-1.5-flash-latest',
       apiKey: apiKey,
       safetySettings: [
         SafetySetting(HarmCategory.sexuallyExplicit, HarmBlockThreshold.none)
@@ -36,6 +36,11 @@ void main() async {
 
   final responses = model.generateContentStream(content);
   await for (final response in responses) {
+    if (response.usageMetadata case final usageMetadata?) {
+      stdout.writeln('(Usage: prompt - ${usageMetadata.promptTokenCount}), '
+          'candidates - ${usageMetadata.candidatesTokenCount}, '
+          'total - ${usageMetadata.totalTokenCount}');
+    }
     stdout.write(response.text);
   }
   stdout.writeln();

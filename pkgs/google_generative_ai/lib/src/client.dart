@@ -17,14 +17,16 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'error.dart';
+import 'version.dart';
+
+const clientName = 'genai-dart/$packageVersion';
+
 abstract interface class ApiClient {
   Future<Map<String, Object?>> makeRequest(Uri uri, Map<String, Object?> body);
   Stream<Map<String, Object?>> streamRequest(
       Uri uri, Map<String, Object?> body);
 }
-
-const packageVersion = '0.0.1';
-const clientName = 'genai-dart/$packageVersion';
 
 // Encodes first by `json.encode`, then `utf8.encode`.
 // Decodes first by `utf8.decode`, then `json.decode`.
@@ -34,22 +36,37 @@ final class HttpApiClient implements ApiClient {
   final String _apiKey;
   final http.Client? _httpClient;
 
-  HttpApiClient({required String apiKey, http.Client? httpClient})
+  final FutureOr<Map<String, String>> Function()? _requestHeaders;
+
+  HttpApiClient(
+      {required String apiKey,
+      http.Client? httpClient,
+      FutureOr<Map<String, String>> Function()? requestHeaders})
       : _apiKey = apiKey,
-        _httpClient = httpClient;
+        _httpClient = httpClient,
+        _requestHeaders = requestHeaders;
+
+  Future<Map<String, String>> _headers() async => {
+        'x-goog-api-key': _apiKey,
+        'x-goog-api-client': clientName,
+        'Content-Type': 'application/json',
+        if (_requestHeaders case final requestHeaders?)
+          ...(await requestHeaders()),
+      };
 
   @override
   Future<Map<String, Object?>> makeRequest(
       Uri uri, Map<String, Object?> body) async {
     final response = await (_httpClient?.post ?? http.post)(
       uri,
-      headers: {
-        'x-goog-api-key': _apiKey,
-        'x-goog-api-client': clientName,
-        'Content-Type': 'application/json',
-      },
+      headers: await _headers(),
       body: _utf8Json.encode(body),
     );
+    if (response.statusCode >= 500) {
+      throw GenerativeAIException(
+          'Server Error [${response.statusCode}]: ${response.body}');
+    }
+
     return _utf8Json.decode(response.bodyBytes) as Map<String, Object?>;
   }
 
@@ -59,12 +76,15 @@ final class HttpApiClient implements ApiClient {
     uri = uri.replace(queryParameters: {'alt': 'sse'});
     final request = http.Request('POST', uri)
       ..bodyBytes = _utf8Json.encode(body)
-      ..headers['x-goog-api-key'] = _apiKey
-      ..headers['x-goog-api-client'] = clientName
-      ..headers['Content-Type'] = 'application/json';
-    final response = _httpClient == null
-        ? await request.send()
-        : await _httpClient.send(request);
+      ..headers.addAll(await _headers());
+    final response = await (_httpClient?.send(request) ?? request.send());
+    if (response.statusCode != 200) {
+      final body = await response.stream.bytesToString();
+      // Yeild a potential error object like a normal result for consistency
+      // with `makeRequest`.
+      yield jsonDecode(body) as Map<String, Object?>;
+      return;
+    }
     final lines =
         response.stream.toStringStream().transform(const LineSplitter());
     await for (final line in lines) {

@@ -24,7 +24,10 @@
 /// const apiKey = ...;
 ///
 /// void main() async {
-///   final model = GenerativeModel(model: 'gemini-pro', apiKey: apiKey);
+///   final model = GenerativeModel(
+///       model: 'gemini-1.5-flash-latest',
+///       apiKey: apiKey,
+///   );
 ///
 ///   final prompt = 'Write a story about a magic backpack.';
 ///   final content = [Content.text(prompt)];
@@ -39,12 +42,14 @@ import 'src/model.dart';
 
 export 'src/api.dart'
     show
+        BatchEmbedContentsResponse,
         BlockReason,
         Candidate,
         CitationMetadata,
         CitationSource,
         ContentEmbedding,
         CountTokensResponse,
+        EmbedContentRequest,
         EmbedContentResponse,
         FinishReason,
         GenerateContentResponse,
@@ -55,13 +60,37 @@ export 'src/api.dart'
         PromptFeedback,
         SafetyRating,
         SafetySetting,
-        TaskType;
+        TaskType,
+        UsageMetadata;
 export 'src/chat.dart' show ChatSession, StartChatExtension;
-export 'src/content.dart' show Content, DataPart, Part, TextPart;
+export 'src/content.dart'
+    show
+        CodeExecutionResult,
+        Content,
+        DataPart,
+        ExecutableCode,
+        FilePart,
+        FunctionCall,
+        FunctionResponse,
+        Language,
+        Outcome,
+        Part,
+        TextPart;
 export 'src/error.dart'
     show
         GenerativeAIException,
+        GenerativeAISdkException,
         InvalidApiKey,
         ServerException,
         UnsupportedUserLocation;
-export 'src/model.dart' show GenerativeModel;
+export 'src/function_calling.dart'
+    show
+        CodeExecution,
+        FunctionCallingConfig,
+        FunctionCallingMode,
+        FunctionDeclaration,
+        Schema,
+        SchemaType,
+        Tool,
+        ToolConfig;
+export 'src/model.dart' show GenerativeModel, RequestOptions;

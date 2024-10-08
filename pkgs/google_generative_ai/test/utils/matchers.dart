@@ -22,36 +22,67 @@ Matcher matchesPart(Part part) => switch (part) {
       DataPart(mimeType: final mimeType, bytes: final bytes) => isA<DataPart>()
           .having((p) => p.mimeType, 'mimeType', mimeType)
           .having((p) => p.bytes, 'bytes', bytes),
+      FilePart(uri: final uri) =>
+        isA<FilePart>().having((p) => p.uri, 'uri', uri),
+      FunctionCall(name: final name, args: final args) => isA<FunctionCall>()
+          .having((p) => p.name, 'name', name)
+          .having((p) => p.args, 'args', args),
+      FunctionResponse(name: final name, response: final response) =>
+        isA<FunctionResponse>()
+            .having((p) => p.name, 'name', name)
+            .having((p) => p.response, 'args', response),
+      ExecutableCode(language: final language, code: final code) =>
+        isA<ExecutableCode>()
+            .having((p) => p.language, 'language', language)
+            .having((p) => p.code, 'code', code),
+      CodeExecutionResult(outcome: final outcome, output: final output) =>
+        isA<CodeExecutionResult>()
+            .having((p) => p.outcome, 'outcome', outcome)
+            .having((p) => p.output, 'output', output),
+      _ => throw StateError('Unhandled Part type.'),
     };
 
 Matcher matchesContent(Content content) => isA<Content>()
     .having((c) => c.role, 'role', content.role)
     .having((c) => c.parts, 'parts', content.parts.map(matchesPart).toList());
 
-Matcher matchesCandidate(Candidate candidate) => isA<Candidate>()
-    .having((c) => c.content, 'content', matchesContent(candidate.content));
+Matcher matchesCandidate(Candidate candidate) => isA<Candidate>().having(
+      (c) => c.content,
+      'content',
+      matchesContent(candidate.content),
+    );
 
 Matcher matchesGenerateContentResponse(GenerateContentResponse response) =>
     isA<GenerateContentResponse>()
-        .having((r) => r.candidates, 'candidates',
-            response.candidates.map(matchesCandidate).toList())
         .having(
-            (r) => r.promptFeedback,
-            'promptFeedback',
-            response.promptFeedback == null
-                ? isNull
-                : matchesPromptFeedback(response.promptFeedback!));
+          (r) => r.candidates,
+          'candidates',
+          response.candidates.map(matchesCandidate).toList(),
+        )
+        .having(
+          (r) => r.promptFeedback,
+          'promptFeedback',
+          response.promptFeedback == null
+              ? isNull
+              : matchesPromptFeedback(response.promptFeedback!),
+        );
 
-Matcher matchesPromptFeedback(PromptFeedback promptFeedback) =>
+Matcher matchesPromptFeedback(
+  PromptFeedback promptFeedback,
+) =>
     isA<PromptFeedback>()
         .having((p) => p.blockReason, 'blockReason', promptFeedback.blockReason)
-        .having((p) => p.blockReasonMessage, 'blockReasonMessage',
-            promptFeedback.blockReasonMessage)
         .having(
-            (p) => p.safetyRatings,
-            'safetyRatings',
-            unorderedMatches(
-                promptFeedback.safetyRatings.map(matchesSafetyRating)));
+          (p) => p.blockReasonMessage,
+          'blockReasonMessage',
+          promptFeedback.blockReasonMessage,
+        )
+        .having(
+          (p) => p.safetyRatings,
+          'safetyRatings',
+          unorderedMatches(
+              promptFeedback.safetyRatings.map(matchesSafetyRating)),
+        );
 
 Matcher matchesSafetyRating(SafetyRating safetyRating) => isA<SafetyRating>()
     .having((s) => s.category, 'category', safetyRating.category)
@@ -62,11 +93,26 @@ Matcher matchesEmbedding(ContentEmbedding embedding) =>
 
 Matcher matchesEmbedContentResponse(EmbedContentResponse response) =>
     isA<EmbedContentResponse>().having(
-        (r) => r.embedding, 'embedding', matchesEmbedding(response.embedding));
+      (r) => r.embedding,
+      'embedding',
+      matchesEmbedding(response.embedding),
+    );
+
+Matcher matchesBatchEmbedContentsResponse(
+  BatchEmbedContentsResponse response,
+) =>
+    isA<BatchEmbedContentsResponse>().having(
+      (r) => r.embeddings,
+      'embeddings',
+      response.embeddings.map(matchesEmbedding),
+    );
 
 Matcher matchesCountTokensResponse(CountTokensResponse response) =>
-    isA<CountTokensResponse>()
-        .having((r) => r.totalTokens, 'totalTokens', response.totalTokens);
+    isA<CountTokensResponse>().having(
+      (r) => r.totalTokens,
+      'totalTokens',
+      response.totalTokens,
+    );
 
 Matcher matchesRequest(http.Request request) => isA<http.Request>()
     .having((r) => r.headers, 'headers', request.headers)
